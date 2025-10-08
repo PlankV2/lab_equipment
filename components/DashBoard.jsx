@@ -3,6 +3,7 @@ import { Package, TriangleAlert, ToolCase, CircleArrowUp } from "lucide-react";
 
 const DashBoard = () => {
   return (
+
     <div className="flex flex-col w-full p-10">
       <span className="text-[50px] mb-10">Dashboard</span>
       <div className="flex justify-between">
@@ -59,7 +60,27 @@ const DashBoard = () => {
           </div>
         </div>
       </div>
+      <div className="p-[15px] w-full mt-[25px] border-gray-300 h-[300px] border-[2px] rounded-xl">
+        <div>inventory status</div>
+        <div>
+          <div className="text-red-300">Out of inventory</div>
+          <div>
+            <div className="bg-red-300 w-full">flsk</div>
+            <div>dropper</div>
+          </div>
+        </div>
+        <div>
+          <div>still of invenbtory</div>
+          <div>
+            <div>beaker</div>
+            <div>labv coat</div>
+            <div>bretet</div>
+          </div>
+        </div>
+      
     </div>
+    </div>
+    
   );
 };
 
