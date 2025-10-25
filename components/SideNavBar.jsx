@@ -1,10 +1,18 @@
 "use client";
+
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import React, { use } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, Home, ClipboardList, AlertTriangle, LogIn } from "lucide-react";
+import { useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 export default function SideNavBar() {
+  const pathname = usePathname();
+
+  console.log(pathname);
   return (
     <div className="p-4">
       <Sheet>
@@ -33,14 +41,26 @@ export default function SideNavBar() {
             </div>
           </div>
 
-          <nav className="flex flex-col gap-4 flex-grow">
-            <button className="flex items-center gap-2 font-medium">
+          <nav className="flex flex-col gap-3">
+            <Link
+              href="/"
+              className={`flex items-center gap-2 rounded-md cursor-pointer pl-3 py-2 ${
+                pathname === "/" && "bg-black text-white "
+              }`}
+            >
               <Home size={18} /> Dashboard
-            </button>
-            <button className="flex items-center gap-2 font-medium">
+            </Link>
+
+            <Link
+              href="/inventory"
+              className={`flex items-center gap-2 rounded-md cursor-pointer pl-3 py-2 ${
+                pathname === "/inventory" && "bg-black text-white "
+              }`}
+            >
               <ClipboardList size={18} /> Inventory
-            </button>
-            <button className="flex items-center gap-2 font-medium">
+            </Link>
+
+            <button className="flex items-center gap-2 pl-3 cursor-pointer">
               <AlertTriangle size={18} />
               <div className="flex flex-col">
                 <span>Report missing/</span>

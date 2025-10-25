@@ -1,5 +1,8 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import SideNavBar from "@/components/SideNavBar";
+import Link from "next/link";
+import { FlaskConical } from "lucide-react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,7 +25,22 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <div className="flex">
+          <SideNavBar />
+          <div className="flex-1 relative">
+            {children}
+            <Link href="/borrow">
+              <div className="fixed right-[100px] bottom-[30px]">
+                <div className="bg-black text-white px-10 py-2 rounded-lg">
+                  <div className="flex gap-2 items-center">
+                    <FlaskConical size={20} />
+                    <span>Borrow Item</span>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          </div>
+        </div>
       </body>
     </html>
   );

@@ -1,10 +1,16 @@
 import React from "react";
-import { Package, TriangleAlert, ToolCase, CircleArrowUp } from "lucide-react";
+import {
+  Package,
+  TriangleAlert,
+  ToolCase,
+  CircleArrowUp,
+  FlaskConical,
+} from "lucide-react";
+import Link from "next/link";
 
 const DashBoard = () => {
   return (
-
-    <div className="flex flex-col w-full p-10">
+    <div className="flex flex-col w-full p-10 relative">
       <span className="text-[50px] mb-10">Dashboard</span>
       <div className="flex justify-between">
         <div className="flex flex-col w-[22%] border-gray-300 border-2 rounded-xl p-6 justify-between gap-5">
@@ -77,10 +83,8 @@ const DashBoard = () => {
             <div>bretet</div>
           </div>
         </div>
-      
+      </div>
     </div>
-    </div>
-    
   );
 };
 
