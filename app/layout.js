@@ -25,10 +25,10 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <div className="flex">
+        <div className="flex items-stretch">
           <SideNavBar />
-          <div className="flex-1 relative">
-            {children}
+          {children}
+          <div className="flex-1 relative h-full">
             <Link href="/borrow">
               <div className="fixed right-[100px] bottom-[30px]">
                 <div className="bg-black text-white px-10 py-2 rounded-lg">

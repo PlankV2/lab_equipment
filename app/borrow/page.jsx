@@ -4,7 +4,7 @@ import { FlaskConical, Database, Diff, Scale } from "lucide-react";
 
 const Borrow = () => {
   return (
-    <div className="flex flex-col w-full">
+    <div className="flex flex-col w-full h-full">
       <div className="flex ml-[10%] mt-[5%]">
         <span className="text-[40px]">Borrow Equipments</span>
       </div>
@@ -21,7 +21,7 @@ const Borrow = () => {
           <span className="ml-3">Category</span>
         </div>
       </div>
-      <div className="flex mt-[50px] px-[10%]">
+      <div className="flex mt-[50px] px-[10%] items-stretch">
         <div className="flex flex-col">
           <div className="flex border border-black px-[25px] py-[10px] rounded-lg justify-center mt-[10px]">
             <FlaskConical />
@@ -40,7 +40,23 @@ const Borrow = () => {
             <span className="ml-[10px] ">Glassware</span>
           </div>
         </div>
-        <div className="w-1 bg-black h-full"></div>
+        <div className="w-[1px] bg-black ml-[20px]"></div>
+        <div className="grid grid-cols-3 w-full gap-4 px-5">
+          <div className="w-full flex flex-col">
+            <div className="relative w-full h-[250px]">
+              <Image
+                src="/Images/t_beaker.png"
+                className="object-cover"
+                fill
+                alt="beaker"
+              ></Image>
+            </div>
+
+            <span>Beaker(500mL)</span>
+          </div>
+          <div className="h-[50px] bg-black"></div>
+          <div className="h-[50px] bg-black"></div>
+        </div>
       </div>
     </div>
   );
