@@ -67,20 +67,20 @@ const DashBoard = () => {
         </div>
       </div>
       <div className="p-[15px] w-full mt-[25px] border-gray-300 h-[300px] border-[2px] rounded-xl">
-        <div>inventory status</div>
+        <div>Inventory Status</div>
         <div>
-          <div className="text-red-300">Out of inventory</div>
+          <div className="text-red-300">Out of Inventory</div>
           <div>
-            <div className="bg-red-300 w-full">flsk</div>
-            <div>dropper</div>
+            <div className="bg-red-300 w-full p-[5px] rounded-[5px]">Flask</div>
+            <div className="bg-red-300 mt-[10px] w-full p-[5px] rounded-[5px]">Dropper</div>
           </div>
         </div>
         <div>
-          <div>still of invenbtory</div>
+          <div className="text-orange-400">Still in Inventory</div>
           <div>
-            <div>beaker</div>
-            <div>labv coat</div>
-            <div>bretet</div>
+            <div>Beaker</div>
+            <div>Lab Coat</div>
+            <div>Burette</div>
           </div>
         </div>
       </div>
