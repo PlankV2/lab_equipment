@@ -66,21 +66,34 @@ const DashBoard = () => {
           </div>
         </div>
       </div>
-      <div className="p-[15px] w-full mt-[25px] border-gray-300 h-[300px] border-[2px] rounded-xl">
-        <div>Inventory Status</div>
-        <div>
-          <div className="text-red-300">Out of Inventory</div>
-          <div>
-            <div className="bg-red-300 w-full p-[5px] rounded-[5px]">Flask</div>
-            <div className="bg-red-300 mt-[10px] w-full p-[5px] rounded-[5px]">Dropper</div>
+      <div className="flex flex-col border-2 rounded-xl border-gray-300 mt-[100px] p-[15px]">
+        <span>Inventory Status</span>
+        <div className="flex flex-col">
+          <span className="text-[20px] text-orange-700">Out of Inventory</span>
+          <div className="flex p-[5px] py-[10px] justify-between bg-rose-300 my-[7px] rounded-lg pr-[20px] pl-[20px] text-[17px]">
+            <span>Flask</span>
+            <span className="bg-rose-400 px-[30px] rounded-lg rounded-lg">
+              0pcs
+            </span>
+          </div>
+          <div className="flex p-[5px] py-[10px] justify-between bg-rose-300 my-[7px] rounded-lg pr-[20px] pl-[20px] text-[17px]">
+            <span>Dropper</span>
+            <span className="bg-rose-400 px-[30px] rounded-lg">0pcs</span>
           </div>
         </div>
-        <div>
-          <div className="text-orange-400">Still in Inventory</div>
-          <div>
-            <div>Beaker</div>
-            <div>Lab Coat</div>
-            <div>Burette</div>
+        <div className="flex flex-col mt-[20px]">
+          <span className="text-[20px] text-[#E0AC00]">Still in Inventory</span>
+          <div className="flex p-[5px] py-[10px] justify-between bg-amber-100 my-[7px] rounded-lg pr-[20px] pl-[20px] text-[17px]">
+            <span>Beaker</span>
+            <span className="bg-amber-300 px-[30px] rounded-lg">0pcs</span>
+          </div>
+          <div className="flex p-[5px] py-[10px] justify-between bg-amber-100 my-[7px] rounded-lg pr-[20px] pl-[20px] text-[17px]">
+            <span>Lab Coat</span>
+            <span className="bg-amber-300 px-[30px] rounded-lg">0pcs</span>
+          </div>
+          <div className="flex p-[5px] py-[10px] justify-between bg-amber-100 my-[7px] rounded-lg pr-[20px] pl-[20px] text-[17px]">
+            <span>Burette</span>
+            <span className="bg-amber-300 px-[30px] rounded-lg">0pcs</span>
           </div>
         </div>
       </div>

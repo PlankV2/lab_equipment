@@ -4,7 +4,9 @@ import React from "react";
 import Image from "next/image";
 import { FlaskConical, Database, Diff, Scale } from "lucide-react";
 import { SquarePlus, SquareMinus } from "lucide-react";
-import { useBorrow } from "../context/BorrowContext";
+{
+  /*import { useBorrow } from "../context/BorrowContext";*/
+}
 
 const Borrow = () => {
   {
@@ -118,7 +120,7 @@ const Borrow = () => {
         </div>
         <div className="h-[300px] w-full"></div>
       </div>
-      <div className="h-[100px] fixed bg-black bottom-0 right-[10%] left-[15%]"></div>
+      <div className="h-[180px] fixed border-4 border-gray-300 rounded-lg bottom-0 right-[10%] left-[15%]"></div>
     </>
   );
 };
