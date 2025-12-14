@@ -1,7 +1,7 @@
 "use client";
 
-import { ApolloNextAppProvider } from "@apollo/experimental-nextjs-app-support";
-import { makeClient } from "./ApolloContext.jsx";
+import { ApolloNextAppProvider } from "@apollo/client-integration-nextjs";
+import { makeClient } from "@/context/ApolloContext";
 
 export default function ApolloWrapper({ children }) {
 	return (

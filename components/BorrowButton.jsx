@@ -11,13 +11,7 @@ const BorrowButton = () => {
 	return (
 		<>
 			{pathname === "/borrow" && (
-				<div className="fixed right-[250px] bottom-[30px]">
-					<div className="bg-black text-white px-10 py-3 rounded-lg">
-						<div className="flex gap-2 items-center">
-							<span>Confirm</span>
-						</div>
-					</div>
-				</div>
+				<div className="fixed right-[100px] bottom-[30px]"></div>
 			)}
 			{pathname !== "/borrow" && (
 				<Link href="/borrow">

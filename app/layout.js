@@ -4,11 +4,9 @@ import SideNavBar from "@/components/SideNavBar";
 import Link from "next/link";
 import { FlaskConical } from "lucide-react";
 import BorrowButton from "@/components/BorrowButton";
-import { ApolloProvider } from "@apollo/client";
-import client from "@/context/ApolloContext";
-import { ApolloNextAppProvider } from "@apollo/experimental-nextjs-app-support";
-import { makeClient } from "@/context/ApolloContext";
 import ApolloWrapper from "@/context/ApolloWrapper";
+import { ClerkProvider } from "@clerk/nextjs";
+import LoginButton from "@/components/LoginButton";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -35,13 +33,22 @@ export default function RootLayout({ children }) {
 		<html lang="en">
 			<body className={`${inter.className} antialiased`}>
 				<div className="flex items-stretch">
-					<ApolloWrapper client={client}>{children}</ApolloWrapper>
+					<ClerkProvider>
+						<ApolloWrapper>
+							<SideNavBar />
+							<div className="absolute top-0 right-0">
+								<LoginButton />
+							</div>
 
-					<div className="flex-1 relative h-full">
-						<Link href="/borrow">
-							<BorrowButton />
-						</Link>
-					</div>
+							{children}
+						</ApolloWrapper>
+
+						<div className="flex-1 relative h-full">
+							<Link href="/borrow">
+								<BorrowButton />
+							</Link>
+						</div>
+					</ClerkProvider>
 				</div>
 			</body>
 		</html>
