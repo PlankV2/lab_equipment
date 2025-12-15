@@ -17,9 +17,16 @@ export async function POST(req) {
 		const results = [];
 
 		for (const b of bookingData) {
-			const { equipmentId, startTime, endTime, userEmail } = b;
+			const { equipmentId, startTime, endTime, userEmail, quantity } = b;
 
-			// Step 1: search Profile in Hygraph
+			if (!quantity || quantity <= 0) {
+				return NextResponse.json(
+					{ error: "Invalid quantity" },
+					{ status: 400 }
+				);
+			}
+
+			// Step 1: Find or create profile
 			const GET_PROFILE = gql`
 				query GetProfile($email: String!) {
 					profiles(where: { email_contains: $email }) {
@@ -35,7 +42,6 @@ export async function POST(req) {
 			let profile;
 
 			if (!profileRes.profiles.length) {
-				// Profile not found → create new one
 				const CREATE_PROFILE = gql`
 					mutation CreateProfile($email: String!) {
 						createProfile(data: { email: $email }) {
@@ -52,11 +58,12 @@ export async function POST(req) {
 				profile = profileRes.profiles[0];
 			}
 
-			// Step 2: create booking
+			// Step 2: Create booking
 			const CREATE_BOOKING = gql`
 				mutation CreateBooking(
 					$equipmentId: ID!
 					$profileId: ID!
+					$quantity: Int!
 					$startTime: DateTime!
 					$endTime: DateTime!
 				) {
@@ -64,12 +71,16 @@ export async function POST(req) {
 						data: {
 							equipment: { connect: { id: $equipmentId } }
 							profile: { connect: { id: $profileId } }
+							quantity: $quantity
 							startTime: $startTime
 							endTime: $endTime
 							status_: confirmed
 						}
 					) {
 						id
+						quantity
+						startTime
+						endTime
 					}
 				}
 			`;
@@ -77,6 +88,7 @@ export async function POST(req) {
 			const bookingRes = await hygraph.request(CREATE_BOOKING, {
 				equipmentId,
 				profileId: profile.id,
+				quantity,
 				startTime,
 				endTime,
 			});

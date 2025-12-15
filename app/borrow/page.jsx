@@ -31,6 +31,20 @@ const GET_EQUIPMENTS = gql`
 	}
 `;
 
+const GET_BOOKINGS = gql`
+	query GetActiveBookings {
+		bookings(orderBy: startTime_DESC) {
+			id
+			quantity
+			startTime
+			endTime
+			equipment {
+				id
+			}
+		}
+	}
+`;
+
 const Borrow = () => {
 	const [availableItems, setAvailableItems] = useState([]);
 	const [selectedItems, setSelectedItems] = useState([]);
@@ -40,34 +54,53 @@ const Borrow = () => {
 
 	const { user } = useUser();
 
-	console.log("HYGRAPH_API_URL:", process.env.NEXT_PUBLIC_HYGRAPH_API_URL);
-
-	// Fetch equipments from Hygraph on mount
 	useEffect(() => {
-		async function fetchEquipments() {
+		async function fetchData() {
 			try {
-				const res = await hygraph.request(GET_EQUIPMENTS);
-				console.log("Hygraph equipments raw response:", res);
-				setAvailableItems(
-					res.equipments.map((e) => ({
-						id: e.id,
-						name: e.name,
-						quantity: e.quantity,
-						image: e.image?.url || "/Images/t_beaker.png",
-					}))
-				);
+				// Fetch equipments
+				const equipmentsRes = await hygraph.request(GET_EQUIPMENTS);
+
+				// Fetch bookings
+				const bookingsRes = await hygraph.request(GET_BOOKINGS);
+				const now = new Date();
+
+				// Calculate currently borrowed quantities per equipment
+				const borrowedMap = {};
+				bookingsRes.bookings.forEach((b) => {
+					const start = new Date(b.startTime);
+					const end = new Date(b.endTime);
+					if (start <= now && now <= end) {
+						const eqId = b.equipment?.id;
+						if (eqId) {
+							borrowedMap[eqId] =
+								(borrowedMap[eqId] || 0) + (b.quantity ?? 0);
+						}
+					}
+				});
+
+				// Merge available quantity
+				const items = equipmentsRes.equipments.map((e) => ({
+					id: e.id,
+					name: e.name,
+					image: e.image?.url || "/Images/t_beaker.png",
+					totalQuantity: e.quantity ?? 0,
+					availableQuantity:
+						(e.quantity ?? 0) - (borrowedMap[e.id] || 0),
+				}));
+
+				setAvailableItems(items);
 			} catch (err) {
-				console.error("Failed to fetch equipments:", err);
+				console.error("Failed to fetch data:", err);
 			}
 		}
-		fetchEquipments();
+		fetchData();
 	}, []);
 
 	const addItem = (item) => {
 		setSelectedItems((prev) => {
 			const exists = prev.find((s) => s.item.id === item.id);
 			if (exists) {
-				if (exists.quantity < item.quantity) {
+				if (exists.quantity < item.availableQuantity) {
 					return prev.map((s) =>
 						s.item.id === item.id
 							? { ...s, quantity: s.quantity + 1 }
@@ -93,7 +126,7 @@ const Borrow = () => {
 								...s,
 								quantity: Math.min(
 									Math.max(s.quantity + delta, 1),
-									s.item.quantity
+									s.item.availableQuantity
 								),
 						  }
 						: s
@@ -106,7 +139,7 @@ const Borrow = () => {
 		if (!selectedItems.length || !user) return;
 
 		const bookingData = selectedItems.map((s) => ({
-			equipmentId: s.item.id, // real Hygraph ID
+			equipmentId: s.item.id,
 			quantity: s.quantity,
 			startTime: startDate.toISOString(),
 			endTime: endDate.toISOString(),
@@ -138,61 +171,40 @@ const Borrow = () => {
 				</span>
 			</div>
 
-			{/* Category Menu */}
-			<div className="flex mt-[50px] px-[10%] items-stretch">
-				<div className="flex flex-col">
-					<div className="flex border border-black px-[25px] py-[10px] rounded-lg justify-center mt-[10px]">
-						<FlaskConical />{" "}
-						<span className="ml-[10px]">Glassware</span>
-					</div>
-					<div className="flex border border-black px-[25px] py-[10px] rounded-lg justify-center mt-[10px]">
-						<Database />{" "}
-						<span className="ml-[10px]">Plasticware</span>
-					</div>
-					<div className="flex border border-black px-[25px] py-[10px] rounded-lg justify-center mt-[10px]">
-						<Diff /> <span className="ml-[10px]">Lab Stands</span>
-					</div>
-					<div className="flex border border-black px-[25px] py-[10px] rounded-lg justify-center mt-[10px] items-center">
-						<Scale />{" "}
-						<span className="ml-[10px]">Balances & Scale</span>
-					</div>
-				</div>
-
-				<div className="w-[1px] bg-black ml-[20px]"></div>
-
-				{/* Available Items */}
-				<div className="grid grid-cols-3 w-full gap-4 px-5">
-					{availableItems.map((item) => (
-						<div
-							key={item.id}
-							className="w-full flex flex-col bg-gray-100 rounded-xl overflow-hidden"
-						>
-							<div className="relative w-full h-[300px] border-t rounded-xl">
-								<Image
-									src={item.image}
-									className="object-cover"
-									fill
-									alt={item.name}
-								/>
+			{/* Available Items */}
+			<div className="grid grid-cols-3 w-full gap-4 px-[10%] mt-[20px] mb-[300px]">
+				{availableItems.map((item) => (
+					<div
+						key={item.id}
+						className="w-full flex flex-col bg-gray-100 rounded-xl overflow-hidden"
+					>
+						<div className="relative w-full h-[300px] border-t rounded-xl">
+							<Image
+								src={item.image}
+								className="object-cover"
+								fill
+								alt={item.name}
+							/>
+						</div>
+						<div className="flex flex-col px-[15px] mt-[3px]">
+							<span>{item.name}</span>
+							<div className="bg-amber-400 w-fit px-[15px] py-[2px] rounded-lg mt-[5px]">
+								<span>
+									{item.availableQuantity}pc(s) available
+								</span>
 							</div>
-							<div className="flex flex-col px-[15px] mt-[3px]">
-								<span>{item.name}</span>
-								<div className="bg-amber-400 w-fit px-[15px] py-[2px] rounded-lg mt-[5px]">
-									<span>{item.quantity}pc(s) left</span>
-								</div>
-								<div
-									onClick={() => addItem(item)}
-									className="h-[30px] bg-black text-white mt-[14px] mb-[10px] flex justify-center items-center rounded-xl cursor-pointer"
-								>
-									<span>Add Item</span>
-								</div>
+							<div
+								onClick={() => addItem(item)}
+								className="h-[30px] bg-black text-white mt-[14px] mb-[10px] flex justify-center items-center rounded-xl cursor-pointer"
+							>
+								<span>Add Item</span>
 							</div>
 						</div>
-					))}
-				</div>
+					</div>
+				))}
 			</div>
 
-			{/* Selected Items Menu */}
+			{/* Selected Items */}
 			<div className="h-[180px] fixed border-4 border-gray-300 bg-gray-200 rounded-lg bottom-0 right-[10%] left-[15%] p-4 overflow-y-auto">
 				{selectedItems.map((s) => (
 					<div
@@ -230,60 +242,6 @@ const Borrow = () => {
 					</button>
 				)}
 			</div>
-
-			{/* React Datepicker Modal */}
-			{showTimepicker && (
-				<div className="fixed inset-0 flex justify-center items-center bg-black/50 z-50">
-					<div className="bg-white p-6 rounded-lg w-[400px] flex flex-col gap-4">
-						<h2 className="text-xl font-bold">
-							Select Borrow Timeframe
-						</h2>
-
-						<div className="flex flex-col gap-2">
-							<label className="flex flex-col">
-								Start Date & Time:
-								<DatePicker
-									selected={startDate}
-									onChange={(date) => setStartDate(date)}
-									showTimeSelect
-									timeFormat="HH:mm"
-									timeIntervals={15}
-									dateFormat="Pp"
-									className="border p-1 rounded w-full mt-1"
-								/>
-							</label>
-
-							<label className="flex flex-col">
-								End Date & Time:
-								<DatePicker
-									selected={endDate}
-									onChange={(date) => setEndDate(date)}
-									showTimeSelect
-									timeFormat="HH:mm"
-									timeIntervals={15}
-									dateFormat="Pp"
-									className="border p-1 rounded w-full mt-1"
-								/>
-							</label>
-						</div>
-
-						<div className="flex justify-end gap-2 mt-2">
-							<button
-								onClick={() => setShowTimepicker(false)}
-								className="px-4 py-2 rounded border"
-							>
-								Cancel
-							</button>
-							<button
-								onClick={handleSubmitBooking}
-								className="px-4 py-2 rounded bg-black text-white"
-							>
-								Submit
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
 		</div>
 	);
 };

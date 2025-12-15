@@ -54,6 +54,15 @@ export default function SideNavBar() {
 						>
 							<Home size={18} /> Dashboard
 						</Link>
+						<Link
+							href="/borrowedItems"
+							className={`flex items-center gap-2 rounded-md cursor-pointer pl-3 py-2 ${
+								pathname === "/borrowedItems" &&
+								"bg-black text-white "
+							}`}
+						>
+							<Home size={18} /> Borrowed Items
+						</Link>
 
 						<Link
 							href="/inventory"

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
 import Image from "next/image";
+import React, { useEffect, useState } from "react";
 import { GraphQLClient, gql } from "graphql-request";
 
 const hygraph = new GraphQLClient(process.env.NEXT_PUBLIC_HYGRAPH_API_URL, {
@@ -9,19 +9,6 @@ const hygraph = new GraphQLClient(process.env.NEXT_PUBLIC_HYGRAPH_API_URL, {
 		Authorization: `Bearer ${process.env.NEXT_PUBLIC_HYGRAPH_API_TOKEN}`,
 	},
 });
-
-const GET_EQUIPMENTS = gql`
-	query GetEquipments {
-		equipments {
-			id
-			name
-			quantity
-			image {
-				url
-			}
-		}
-	}
-`;
 
 const GET_BOOKINGS = gql`
 	query GetBookings {
@@ -36,6 +23,11 @@ const GET_BOOKINGS = gql`
 			}
 			equipment {
 				id
+				name
+				quantity
+				image {
+					url
+				}
 			}
 		}
 	}
@@ -46,44 +38,38 @@ const Inventory = () => {
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
-		const fetchData = async () => {
+		const fetchBookings = async () => {
 			try {
-				const [equipmentsRes, bookingsRes] = await Promise.all([
-					hygraph.request(GET_EQUIPMENTS),
-					hygraph.request(GET_BOOKINGS),
-				]);
+				const data = await hygraph.request(GET_BOOKINGS);
+				const now = new Date().getTime(); // current time in milliseconds
 
-				const now = new Date();
+				const map = {};
 
-				// Map equipments
-				const eqMap = {};
-				equipmentsRes.equipments.forEach((eq) => {
-					eqMap[eq.id] = {
-						...eq,
-						totalQuantity: eq.quantity ?? 0,
-						borrowed: 0,
-						logs: [],
-					};
-				});
+				data.bookings.forEach((b) => {
+					const eq = b.equipment;
+					if (!eq) return;
 
-				// Aggregate bookings
-				bookingsRes.bookings.forEach((b) => {
-					const eqId = b.equipment?.id;
-					if (!eqId || !eqMap[eqId]) return;
-
-					const start = new Date(b.startTime);
-					const end = new Date(b.endTime);
-
-					// Only count active borrowings
-					if (start <= now && now <= end) {
-						eqMap[eqId].borrowed += b.quantity ?? 0;
+					if (!map[eq.id]) {
+						map[eq.id] = {
+							...eq,
+							activeBorrowed: 0,
+							logs: [],
+						};
 					}
 
-					// Add log
-					eqMap[eqId].logs.push(b);
+					const quantity = b.quantity ?? 0;
+					const start = new Date(b.startTime).getTime();
+					const end = new Date(b.endTime).getTime();
+
+					// Count ACTIVE borrowings (current time is within start/end)
+					if (start <= now && now <= end) {
+						map[eq.id].activeBorrowed += quantity;
+					}
+
+					map[eq.id].logs.push(b);
 				});
 
-				setInventory(Object.values(eqMap));
+				setInventory(Object.values(map));
 			} catch (err) {
 				console.error("Failed to fetch inventory:", err);
 			} finally {
@@ -91,38 +77,31 @@ const Inventory = () => {
 			}
 		};
 
-		fetchData();
+		fetchBookings();
 	}, []);
 
-	if (loading) return <div className="p-10">Loading inventory...</div>;
+	if (loading) {
+		return <div className="p-10">Loading inventory...</div>;
+	}
 
 	return (
 		<div className="flex flex-col w-full">
 			<div className="ml-[10%] mt-[5%]">
 				<span className="text-[40px]">Inventory</span>
-				<p className="text-[12px]">View and search lab equipments</p>
-			</div>
-
-			<div className="flex w-full ml-[10%] mt-[5px] pr-[20%] gap-5">
-				<div className="flex flex-1 h-[30px] border-1 border-black rounded-lg items-center">
-					<span className="text-gray-500 ml-3 text-[15px]">
-						Search Items...
-					</span>
-				</div>
-				<div className="flex flex-1 h-[30px] border-1 border-black rounded-lg items-center">
-					<span className="ml-3">Category</span>
-				</div>
+				<p className="text-[12px]">Currently borrowed lab equipments</p>
 			</div>
 
 			{inventory.map((item) => {
-				const available = item.totalQuantity - item.borrowed;
+				const total = item.quantity ?? 0;
+				const borrowed = item.activeBorrowed;
+				const available = total - borrowed;
 
 				return (
 					<div
 						key={item.id}
 						className="border border-black mt-[30px] mx-[10%] flex gap-[20px] px-[20px] py-[10px]"
 					>
-						{/* Equipment Info */}
+						{/* Equipment info */}
 						<div className="flex items-center w-[260px]">
 							<Image
 								width={80}
@@ -139,12 +118,12 @@ const Inventory = () => {
 							<div className="flex">
 								<div className="flex flex-col">
 									<span>Total</span>
-									<span>Borrowed</span>
+									<span>Currently Borrowed</span>
 									<span>Available</span>
 								</div>
 								<div className="flex flex-col ml-[10px]">
-									<span>{item.totalQuantity}</span>
-									<span>{item.borrowed}</span>
+									<span>{total}</span>
+									<span>{borrowed}</span>
 									<span>{available}</span>
 								</div>
 							</div>
@@ -152,7 +131,7 @@ const Inventory = () => {
 							{/* Logs */}
 							<div className="flex flex-col">
 								<span>Log</span>
-								<div className="flex flex-col max-h-[120px] overflow-y-auto">
+								<div className="flex flex-col max-h-[90px] overflow-y-auto">
 									{item.logs.map((log) => (
 										<span
 											key={log.id}
