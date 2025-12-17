@@ -2,22 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
-import {
-	FlaskConical,
-	Database,
-	Diff,
-	Scale,
-	SquarePlus,
-	SquareMinus,
-} from "lucide-react";
+import { SquarePlus, SquareMinus } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
-
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-
 import { hygraph } from "@/lib/hygraph";
 import { gql } from "graphql-request";
 
+// GraphQL queries
 const GET_EQUIPMENTS = gql`
 	query GetEquipments {
 		equipments {
@@ -46,39 +38,34 @@ const GET_BOOKINGS = gql`
 `;
 
 const Borrow = () => {
+	const { user } = useUser();
 	const [availableItems, setAvailableItems] = useState([]);
 	const [selectedItems, setSelectedItems] = useState([]);
 	const [showTimepicker, setShowTimepicker] = useState(false);
 	const [startDate, setStartDate] = useState(new Date());
 	const [endDate, setEndDate] = useState(new Date());
 
-	const { user } = useUser();
-
+	// Fetch equipments & bookings
 	useEffect(() => {
 		async function fetchData() {
 			try {
-				// Fetch equipments
 				const equipmentsRes = await hygraph.request(GET_EQUIPMENTS);
-
-				// Fetch bookings
 				const bookingsRes = await hygraph.request(GET_BOOKINGS);
 				const now = new Date();
 
-				// Calculate currently borrowed quantities per equipment
+				// Count currently borrowed quantities
 				const borrowedMap = {};
 				bookingsRes.bookings.forEach((b) => {
 					const start = new Date(b.startTime);
 					const end = new Date(b.endTime);
 					if (start <= now && now <= end) {
 						const eqId = b.equipment?.id;
-						if (eqId) {
+						if (eqId)
 							borrowedMap[eqId] =
 								(borrowedMap[eqId] || 0) + (b.quantity ?? 0);
-						}
 					}
 				});
 
-				// Merge available quantity
 				const items = equipmentsRes.equipments.map((e) => ({
 					id: e.id,
 					name: e.name,
@@ -96,6 +83,7 @@ const Borrow = () => {
 		fetchData();
 	}, []);
 
+	// Add item
 	const addItem = (item) => {
 		setSelectedItems((prev) => {
 			const exists = prev.find((s) => s.item.id === item.id);
@@ -113,10 +101,12 @@ const Borrow = () => {
 		});
 	};
 
+	// Remove item
 	const removeItem = (itemId) => {
 		setSelectedItems((prev) => prev.filter((s) => s.item.id !== itemId));
 	};
 
+	// Adjust quantity
 	const adjustQuantity = (itemId, delta) => {
 		setSelectedItems((prev) =>
 			prev
@@ -135,8 +125,10 @@ const Borrow = () => {
 		);
 	};
 
+	// Submit booking
 	const handleSubmitBooking = async () => {
-		if (!selectedItems.length || !user) return;
+		if (!selectedItems.length || !user?.emailAddresses?.[0]?.emailAddress)
+			return;
 
 		const bookingData = selectedItems.map((s) => ({
 			equipmentId: s.item.id,
@@ -146,14 +138,18 @@ const Borrow = () => {
 			userEmail: user.emailAddresses[0].emailAddress,
 		}));
 
+		console.log("Submitting booking:", bookingData);
+
 		try {
 			const res = await fetch("/api/book-equipment", {
 				method: "POST",
+				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ bookingData }),
 			});
 			const result = await res.json();
 			console.log("Booking result:", result);
 
+			// Reset selection & close timepicker
 			setSelectedItems([]);
 			setShowTimepicker(false);
 		} catch (err) {
@@ -204,8 +200,8 @@ const Borrow = () => {
 				))}
 			</div>
 
-			{/* Selected Items */}
-			<div className="h-[180px] fixed border-4 border-gray-300 bg-gray-200 rounded-lg bottom-0 right-[10%] left-[15%] p-4 overflow-y-auto">
+			{/* Selected Items Panel */}
+			<div className="h-[220px] fixed border-4 border-gray-300 bg-gray-200 rounded-lg bottom-0 right-[10%] left-[15%] p-4 overflow-y-auto">
 				{selectedItems.map((s) => (
 					<div
 						key={s.item.id}
@@ -233,13 +229,44 @@ const Borrow = () => {
 						</div>
 					</div>
 				))}
-				{selectedItems.length > 0 && (
+
+				{/* Confirm / Timepicker Flow */}
+				{selectedItems.length > 0 && !showTimepicker && (
 					<button
 						onClick={() => setShowTimepicker(true)}
 						className="bg-black text-white px-6 py-2 rounded-lg mt-2"
 					>
 						Confirm
 					</button>
+				)}
+
+				{showTimepicker && (
+					<div className="flex flex-col gap-2 mt-2">
+						<div>
+							<label className="mr-2">Start Date:</label>
+							<DatePicker
+								selected={startDate}
+								onChange={(date) => setStartDate(date)}
+								showTimeSelect
+								dateFormat="Pp"
+							/>
+						</div>
+						<div>
+							<label className="mr-2">End Date:</label>
+							<DatePicker
+								selected={endDate}
+								onChange={(date) => setEndDate(date)}
+								showTimeSelect
+								dateFormat="Pp"
+							/>
+						</div>
+						<button
+							onClick={handleSubmitBooking}
+							className="bg-green-600 text-white px-6 py-2 rounded-lg mt-2"
+						>
+							Submit Booking
+						</button>
+					</div>
 				)}
 			</div>
 		</div>
