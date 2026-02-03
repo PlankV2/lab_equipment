@@ -155,7 +155,7 @@ const Inventory = () => {
 						</div>
 					</div>
 				);
-			})}
+		q23})}qaq
 		</div>
 	);
 };

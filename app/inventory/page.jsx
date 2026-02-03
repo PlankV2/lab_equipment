@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import { GraphQLClient, gql } from "graphql-request";
 
@@ -44,6 +44,7 @@ const GET_BOOKINGS = gql`
 const Inventory = () => {
 	const [inventory, setInventory] = useState([]);
 	const [loading, setLoading] = useState(true);
+	const [search, setSearch] = useState("");
 
 	useEffect(() => {
 		const fetchData = async () => {
@@ -55,7 +56,6 @@ const Inventory = () => {
 
 				const now = new Date();
 
-				// Map equipments
 				const eqMap = {};
 				equipmentsRes.equipments.forEach((eq) => {
 					eqMap[eq.id] = {
@@ -66,7 +66,6 @@ const Inventory = () => {
 					};
 				});
 
-				// Aggregate bookings
 				bookingsRes.bookings.forEach((b) => {
 					const eqId = b.equipment?.id;
 					if (!eqId || !eqMap[eqId]) return;
@@ -74,12 +73,10 @@ const Inventory = () => {
 					const start = new Date(b.startTime);
 					const end = new Date(b.endTime);
 
-					// Only count active borrowings
 					if (start <= now && now <= end) {
 						eqMap[eqId].borrowed += b.quantity ?? 0;
 					}
 
-					// Add log
 					eqMap[eqId].logs.push(b);
 				});
 
@@ -94,6 +91,32 @@ const Inventory = () => {
 		fetchData();
 	}, []);
 
+	/* ---------------- SEARCH + SORT LOGIC ---------------- */
+
+	const filteredInventory = useMemo(() => {
+		if (!search.trim()) return inventory;
+
+		const query = search.toLowerCase();
+
+		const scoreItem = (name) => {
+			const lower = name.toLowerCase();
+
+			if (lower === query) return 3; // exact match
+			if (lower.startsWith(query)) return 2; // starts with
+			if (lower.includes(query)) return 1; // contains
+			return 0;
+		};
+
+		return inventory
+			.map((item) => ({
+				item,
+				score: scoreItem(item.name),
+			}))
+			.filter((x) => x.score > 0)
+			.sort((a, b) => b.score - a.score)
+			.map((x) => x.item);
+	}, [inventory, search]);
+
 	if (loading) return <div className="p-10">Loading inventory...</div>;
 
 	return (
@@ -103,18 +126,22 @@ const Inventory = () => {
 				<p className="text-[12px]">View and search lab equipments</p>
 			</div>
 
+			{/* Search + Category */}
 			<div className="flex w-full ml-[10%] mt-[5px] pr-[20%] gap-5">
-				<div className="flex flex-1 h-[30px] border-1 border-black rounded-lg items-center">
-					<span className="text-gray-500 ml-3 text-[15px]">
-						Search Items...
-					</span>
-				</div>
-				<div className="flex flex-1 h-[30px] border-1 border-black rounded-lg items-center">
-					<span className="ml-3">Category</span>
+				{/* SEARCH BAR */}
+				<div className="flex w-[50%] h-[30px] border border-black rounded-lg items-center px-2">
+					<input
+						type="text"
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+						placeholder="Search Items..."
+						className="w-full outline-none text-[15px]"
+					/>
 				</div>
 			</div>
 
-			{inventory.map((item) => {
+			{/* INVENTORY LIST */}
+			{filteredInventory.map((item) => {
 				const available = item.totalQuantity - item.borrowed;
 
 				return (
@@ -159,11 +186,11 @@ const Inventory = () => {
 											className="text-gray-400 text-sm"
 										>
 											{new Date(
-												log.startTime
+												log.startTime,
 											).toLocaleDateString()}{" "}
 											→{" "}
 											{new Date(
-												log.endTime
+												log.endTime,
 											).toLocaleDateString()}{" "}
 											—{" "}
 											{log.profile?.name ||

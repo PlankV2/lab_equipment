@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { SquarePlus, SquareMinus } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
@@ -9,7 +9,8 @@ import "react-datepicker/dist/react-datepicker.css";
 import { hygraph } from "@/lib/hygraph";
 import { gql } from "graphql-request";
 
-// GraphQL queries
+/* ---------------- GraphQL ---------------- */
+
 const GET_EQUIPMENTS = gql`
 	query GetEquipments {
 		equipments {
@@ -45,7 +46,11 @@ const Borrow = () => {
 	const [startDate, setStartDate] = useState(new Date());
 	const [endDate, setEndDate] = useState(new Date());
 
-	// Fetch equipments & bookings
+	/* ✅ SEARCH STATE */
+	const [search, setSearch] = useState("");
+
+	/* ---------------- Fetch Data ---------------- */
+
 	useEffect(() => {
 		async function fetchData() {
 			try {
@@ -53,11 +58,11 @@ const Borrow = () => {
 				const bookingsRes = await hygraph.request(GET_BOOKINGS);
 				const now = new Date();
 
-				// Count currently borrowed quantities
 				const borrowedMap = {};
 				bookingsRes.bookings.forEach((b) => {
 					const start = new Date(b.startTime);
 					const end = new Date(b.endTime);
+
 					if (start <= now && now <= end) {
 						const eqId = b.equipment?.id;
 						if (eqId)
@@ -83,30 +88,57 @@ const Borrow = () => {
 		fetchData();
 	}, []);
 
-	// Add item
+	/* ---------------- SEARCH + SORT ---------------- */
+
+	const filteredItems = useMemo(() => {
+		if (!search.trim()) return availableItems;
+
+		const query = search.toLowerCase();
+
+		const scoreItem = (name) => {
+			const lower = name.toLowerCase();
+
+			if (lower === query) return 3;
+			if (lower.startsWith(query)) return 2;
+			if (lower.includes(query)) return 1;
+			return 0;
+		};
+
+		return availableItems
+			.map((item) => ({
+				item,
+				score: scoreItem(item.name),
+			}))
+			.filter((x) => x.score > 0)
+			.sort((a, b) => b.score - a.score)
+			.map((x) => x.item);
+	}, [availableItems, search]);
+
+	/* ---------------- Item Selection ---------------- */
+
 	const addItem = (item) => {
 		setSelectedItems((prev) => {
 			const exists = prev.find((s) => s.item.id === item.id);
+
 			if (exists) {
 				if (exists.quantity < item.availableQuantity) {
 					return prev.map((s) =>
 						s.item.id === item.id
 							? { ...s, quantity: s.quantity + 1 }
-							: s
+							: s,
 					);
 				}
 				return prev;
 			}
+
 			return [...prev, { item, quantity: 1 }];
 		});
 	};
 
-	// Remove item
 	const removeItem = (itemId) => {
 		setSelectedItems((prev) => prev.filter((s) => s.item.id !== itemId));
 	};
 
-	// Adjust quantity
 	const adjustQuantity = (itemId, delta) => {
 		setSelectedItems((prev) =>
 			prev
@@ -116,16 +148,17 @@ const Borrow = () => {
 								...s,
 								quantity: Math.min(
 									Math.max(s.quantity + delta, 1),
-									s.item.availableQuantity
+									s.item.availableQuantity,
 								),
-						  }
-						: s
+							}
+						: s,
 				)
-				.filter((s) => s.quantity > 0)
+				.filter((s) => s.quantity > 0),
 		);
 	};
 
-	// Submit booking
+	/* ---------------- Submit Booking ---------------- */
+
 	const handleSubmitBooking = async () => {
 		if (!selectedItems.length || !user?.emailAddresses?.[0]?.emailAddress)
 			return;
@@ -138,24 +171,21 @@ const Borrow = () => {
 			userEmail: user.emailAddresses[0].emailAddress,
 		}));
 
-		console.log("Submitting booking:", bookingData);
-
 		try {
-			const res = await fetch("/api/book-equipment", {
+			await fetch("/api/book-equipment", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ bookingData }),
 			});
-			const result = await res.json();
-			console.log("Booking result:", result);
 
-			// Reset selection & close timepicker
 			setSelectedItems([]);
 			setShowTimepicker(false);
 		} catch (err) {
 			console.error("Booking failed:", err);
 		}
 	};
+
+	/* ---------------- UI ---------------- */
 
 	return (
 		<div className="flex flex-col w-full h-full">
@@ -167,9 +197,22 @@ const Borrow = () => {
 				</span>
 			</div>
 
+			{/* ✅ SEARCH BAR */}
+			<div className="flex w-full ml-[10%] mt-[5px] pr-[20%]">
+				<div className="flex w-[50%] h-[30px] border border-black rounded-lg items-center px-2">
+					<input
+						type="text"
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+						placeholder="Search Items..."
+						className="w-full outline-none text-[15px]"
+					/>
+				</div>
+			</div>
+
 			{/* Available Items */}
 			<div className="grid grid-cols-3 w-full gap-4 px-[10%] mt-[20px] mb-[300px]">
-				{availableItems.map((item) => (
+				{filteredItems.map((item) => (
 					<div
 						key={item.id}
 						className="w-full flex flex-col bg-gray-100 rounded-xl overflow-hidden"
@@ -182,13 +225,16 @@ const Borrow = () => {
 								alt={item.name}
 							/>
 						</div>
+
 						<div className="flex flex-col px-[15px] mt-[3px]">
 							<span>{item.name}</span>
+
 							<div className="bg-amber-400 w-fit px-[15px] py-[2px] rounded-lg mt-[5px]">
 								<span>
 									{item.availableQuantity}pc(s) available
 								</span>
 							</div>
+
 							<div
 								onClick={() => addItem(item)}
 								className="h-[30px] bg-black text-white mt-[14px] mb-[10px] flex justify-center items-center rounded-xl cursor-pointer"
@@ -208,18 +254,22 @@ const Borrow = () => {
 						className="flex items-center justify-between mb-2"
 					>
 						<span>{s.item.name}</span>
+
 						<div className="flex items-center gap-2">
 							<button
 								onClick={() => adjustQuantity(s.item.id, -1)}
 							>
 								<SquareMinus />
 							</button>
+
 							<span>{s.quantity}</span>
+
 							<button
 								onClick={() => adjustQuantity(s.item.id, 1)}
 							>
 								<SquarePlus />
 							</button>
+
 							<button
 								onClick={() => removeItem(s.item.id)}
 								className="ml-2 text-red-500 font-bold"
@@ -230,7 +280,6 @@ const Borrow = () => {
 					</div>
 				))}
 
-				{/* Confirm / Timepicker Flow */}
 				{selectedItems.length > 0 && !showTimepicker && (
 					<button
 						onClick={() => setShowTimepicker(true)}
@@ -251,6 +300,7 @@ const Borrow = () => {
 								dateFormat="Pp"
 							/>
 						</div>
+
 						<div>
 							<label className="mr-2">End Date:</label>
 							<DatePicker
@@ -260,6 +310,7 @@ const Borrow = () => {
 								dateFormat="Pp"
 							/>
 						</div>
+
 						<button
 							onClick={handleSubmitBooking}
 							className="bg-green-600 text-white px-6 py-2 rounded-lg mt-2"
