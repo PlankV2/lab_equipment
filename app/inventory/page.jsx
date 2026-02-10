@@ -12,7 +12,7 @@ const hygraph = new GraphQLClient(process.env.NEXT_PUBLIC_HYGRAPH_API_URL, {
 
 const GET_EQUIPMENTS = gql`
 	query GetEquipments {
-		equipments {
+		equipments(first: 100) {
 			id
 			name
 			quantity
