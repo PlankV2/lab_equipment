@@ -1,283 +1,411 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Image from "next/image";
 import { GraphQLClient, gql } from "graphql-request";
 
 /* ---------------- HYGRAPH CLIENT ---------------- */
 const hygraph = new GraphQLClient(
-	process.env.NEXT_PUBLIC_HYGRAPH_API_URL,
-	{
-		headers: {
-			Authorization: `Bearer ${process.env.NEXT_PUBLIC_HYGRAPH_API_TOKEN}`,
-		},
-	}
+  process.env.NEXT_PUBLIC_HYGRAPH_API_URL,
+  {
+    headers: {
+      Authorization: `Bearer ${process.env.NEXT_PUBLIC_HYGRAPH_API_TOKEN}`,
+    },
+  }
 );
 
 /* ---------------- QUERIES ---------------- */
 const GET_EQUIPMENTS = gql`
-	query GetEquipments {
-		equipments(first: 100) {
-			id
-			name
-			quantity
-			image {
-				url
-			}
-		}
-	}
+  query GetEquipments {
+    equipments(first: 100) {
+      id
+      name
+      quantity
+      image {
+        url
+      }
+    }
+  }
 `;
 
 const GET_BOOKINGS = gql`
-	query GetBookings {
-		draftBookings: bookings(
-			stage: DRAFT
-			orderBy: startTime_ASC
-		) {
-			id
-			stage
-			quantity
-			startTime
-			endTime
-			profile {
-				name
-				email
-			}
-			equipment {
-				id
-			}
-		}
+  query GetBookings {
+    draftBookings: bookings(stage: DRAFT, orderBy: startTime_ASC, first: 100) {
+      id
+      stage
+      quantity
+      startTime
+      endTime
+      profile {
+        name
+        email
+      }
+      equipment {
+        id
+      }
+    }
 
-		publishedBookings: bookings(
-			stage: PUBLISHED
-			orderBy: startTime_ASC
-		) {
-			id
-			stage
-			quantity
-			startTime
-			endTime
-			profile {
-				name
-				email
-			}
-			equipment {
-				id
-			}
-		}
-	}
+    publishedBookings: bookings(stage: PUBLISHED, orderBy: startTime_ASC, first: 100) {
+      id
+      stage
+      quantity
+      startTime
+      endTime
+      profile {
+        name
+        email
+      }
+      equipment {
+        id
+      }
+    }
+  }
+`;
+
+/* ---------------- MUTATIONS ---------------- */
+const PUBLISH_BOOKING = gql`
+  mutation PublishBooking($id: ID!) {
+    publishBooking(where: { id: $id }, to: PUBLISHED) {
+      id
+      stage
+    }
+  }
+`;
+
+const DELETE_BOOKING = gql`
+  mutation DeleteBooking($id: ID!) {
+    deleteBooking(where: { id: $id }) {
+      id
+    }
+  }
 `;
 
 /* ================================================= */
 export default function Inventory() {
-	const [inventory, setInventory] = useState([]);
-	const [loading, setLoading] = useState(true);
-	const [search, setSearch] = useState("");
+  const [inventory, setInventory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [actionLoading, setActionLoading] = useState(null);
 
-	useEffect(() => {
-		const fetchData = async () => {
-			try {
-				const [equipmentsRes, bookingsRes] =
-					await Promise.all([
-						hygraph.request(GET_EQUIPMENTS),
-						hygraph.request(GET_BOOKINGS),
-					]);
+  /* ---------------- FETCH ---------------- */
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [equipmentsRes, bookingsRes] = await Promise.all([
+        hygraph.request(GET_EQUIPMENTS),
+        hygraph.request(GET_BOOKINGS),
+      ]);
 
-				const now = new Date();
+      const now = new Date();
 
-				/* ---------- MERGE BOOKINGS ---------- */
-				const bookings = [
-					...bookingsRes.draftBookings,
-					...bookingsRes.publishedBookings,
-				];
+      // Deduplicate: if a booking id exists in both draft and published,
+      // the PUBLISHED version wins — the draft is just its working copy.
+      const seenIds = new Set();
+      const bookings = [];
 
-				const eqMap = {};
+      for (const b of bookingsRes.publishedBookings) {
+        seenIds.add(b.id);
+        bookings.push(b);
+      }
+      for (const b of bookingsRes.draftBookings) {
+        if (!seenIds.has(b.id)) {
+          bookings.push(b);
+        }
+      }
 
-				/* ---------- INIT EQUIPMENT ---------- */
-				equipmentsRes.equipments.forEach((eq) => {
-					eqMap[eq.id] = {
-						...eq,
-						totalQuantity: eq.quantity ?? 0,
-						borrowed: 0,
-						logs: [],
-						hasDraft: false,
-					};
-				});
+      const eqMap = {};
 
-				/* ---------- PROCESS BOOKINGS ---------- */
-				bookings.forEach((b) => {
-					const eqId = b.equipment?.id;
-					if (!eqId || !eqMap[eqId]) return;
+      equipmentsRes.equipments.forEach((eq) => {
+        eqMap[eq.id] = {
+          ...eq,
+          totalQuantity: eq.quantity ?? 0,
+          borrowed: 0,
+          logs: [],
+        };
+      });
 
-					const quantity = b.quantity ?? 0;
-					const start = new Date(b.startTime);
-					const end = new Date(b.endTime);
+      bookings.forEach((b) => {
+        const eqId = b.equipment?.id;
+        if (!eqId || !eqMap[eqId]) return;
 
-					// Count active now for borrowed quantity
-					const isActiveNow =
-						start <= now && now <= end &&
-						b.stage === "PUBLISHED";
+        const quantity = b.quantity ?? 0;
+        const start = new Date(b.startTime);
+        const end = new Date(b.endTime);
 
-					if (isActiveNow) {
-						eqMap[eqId].borrowed += quantity;
-					}
+        if (end < now) return;
 
-					if (b.stage === "DRAFT") {
-						eqMap[eqId].hasDraft = true;
-					}
+        const isActiveNow =
+          start <= now && now <= end && b.stage === "PUBLISHED";
 
-					eqMap[eqId].logs.push({
-						...b,
-						isActiveNow,
-					});
-				});
+        if (isActiveNow) {
+          eqMap[eqId].borrowed += quantity;
+        }
 
-				/* ---------- CLEAN + SORT ---------- */
-				const result = Object.values(eqMap)
-					.filter((item) => item.logs.length > 0)
-					.map((item) => ({
-						...item,
-						logs: item.logs.sort(
-							(a, b) =>
-								new Date(a.startTime) -
-								new Date(b.startTime)
-						),
-					}));
+        eqMap[eqId].logs.push({ ...b, isActiveNow });
+      });
 
-				setInventory(result);
-			} catch (err) {
-				console.error("Failed to fetch inventory:", err);
-			} finally {
-				setLoading(false);
-			}
-		};
+      const result = Object.values(eqMap)
+        .filter((item) => item.logs.length > 0)
+        .map((item) => ({
+          ...item,
+          logs: item.logs.sort(
+            (a, b) =>
+              new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+          ),
+          hasDraft: item.logs.some((l) => l.stage === "DRAFT"),
+        }));
 
-		fetchData();
-	}, []);
+      setInventory(result);
+    } catch (err) {
+      console.error("Failed to fetch inventory:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-	/* ---------------- SEARCH ---------------- */
-	const filteredInventory = useMemo(() => {
-		if (!search.trim()) return inventory;
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-		const q = search.toLowerCase();
+  /* ---------------- ACTIONS ---------------- */
+  const handleConfirm = async (id) => {
+    setActionLoading(id);
+    try {
+      // Just publish — no delete. The draft layer is the same record;
+      // deduplication in fetchData will hide it once PUBLISHED exists.
+      await hygraph.request(PUBLISH_BOOKING, { id });
+      await fetchData();
+    } catch (err) {
+      console.error("Confirm failed:", err?.response?.errors ?? err);
+      alert(
+        "Confirm failed: " +
+          (err?.response?.errors?.[0]?.message ?? "Unknown error")
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
-		return inventory.filter((item) =>
-			item.name.toLowerCase().includes(q)
-		);
-	}, [inventory, search]);
+  const handleCancel = async (id) => {
+    setActionLoading(id);
+    try {
+      // Delete only for genuine cancellations (entry is still DRAFT only)
+      await hygraph.request(DELETE_BOOKING, { id });
+      await fetchData();
+    } catch (err) {
+      console.error("Delete failed:", err?.response?.errors ?? err);
+      alert(
+        "Delete failed: " +
+          (err?.response?.errors?.[0]?.message ?? "Unknown error")
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
-	/* ---------------- CARD PRIORITY ---------------- */
-	const getCardStyle = (item) => {
-		const available = item.totalQuantity - item.borrowed;
+  /* ---------------- SEARCH ---------------- */
+  const filteredInventory = useMemo(() => {
+    if (!search.trim()) return inventory;
+    const q = search.toLowerCase();
+    return inventory.filter((item) => item.name.toLowerCase().includes(q));
+  }, [inventory, search]);
 
-		if (available < 0)
-			return "bg-red-50 border-red-400";
-		if (item.hasDraft)
-			return "bg-yellow-50 border-yellow-400";
-		if (item.logs.some((l) => l.stage === "PUBLISHED"))
-			return "bg-green-50 border-green-400";
-		return "border-black";
-	};
+  /* ---------------- CARD STYLE ---------------- */
+  const getCardStyle = (item) => {
+    const available = item.totalQuantity - item.borrowed;
+    if (available < 0) return "bg-red-50 border-red-300";
+    if (item.hasDraft) return "bg-amber-50 border-amber-300";
+    if (item.logs.some((l) => l.stage === "PUBLISHED"))
+      return "bg-emerald-50 border-emerald-300";
+    return "border-gray-200";
+  };
 
-	if (loading)
-		return <div className="p-10">Loading inventory...</div>;
+  const getStatusDot = (item) => {
+    const available = item.totalQuantity - item.borrowed;
+    if (available < 0) return "bg-red-400";
+    if (item.hasDraft) return "bg-amber-400";
+    if (item.logs.some((l) => l.stage === "PUBLISHED"))
+      return "bg-emerald-400";
+    return "bg-gray-300";
+  };
 
-	return (
-		<div className="flex flex-col w-full">
-			{/* HEADER */}
-			<div className="ml-[10%] mt-[5%]">
-				<span className="text-[40px]">Inventory</span>
-				<p className="text-[12px]">
-					View and search lab equipments
-				</p>
-			</div>
+  if (loading)
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400 text-sm tracking-widest uppercase">
+        Loading inventory…
+      </div>
+    );
 
-			{/* SEARCH */}
-			<div className="ml-[10%] mt-[10px] w-[50%]">
-				<input
-					type="text"
-					value={search}
-					onChange={(e) =>
-						setSearch(e.target.value)
-					}
-					placeholder="Search items..."
-					className="border border-black rounded-lg px-3 py-1 w-full"
-				/>
-			</div>
+  return (
+    <div className="flex flex-col w-full pb-20">
+      {/* HEADER */}
+      <div className="ml-[10%] mt-[5%]">
+        <span className="text-[40px] font-light tracking-tight">Inventory</span>
+        <p className="text-[12px] text-gray-400 mt-1">
+          View and manage lab equipment bookings
+        </p>
+      </div>
 
-			{/* INVENTORY LIST */}
-			{filteredInventory.map((item) => {
-				const available =
-					item.totalQuantity - item.borrowed;
+      {/* SEARCH */}
+      <div className="ml-[10%] mt-4 w-[50%]">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search items..."
+          className="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:border-black transition-colors"
+        />
+      </div>
 
-				return (
-					<div
-						key={item.id}
-						className={`mt-[30px] mx-[10%] flex gap-[20px] px-[20px] py-[10px] border ${getCardStyle(
-							item
-						)}`}
-					>
-						{/* EQUIPMENT INFO */}
-						<div className="flex items-center w-[260px]">
-							<Image
-								width={80}
-								height={80}
-								src={
-									item.image?.url ||
-									"/Images/t_beaker.png"
-								}
-								alt={item.name}
-								className="mr-[10px]"
-							/>
-							<span>{item.name}</span>
-						</div>
+      {/* LEGEND */}
+      <div className="ml-[10%] mt-3 flex gap-5 text-xs text-gray-400">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+          Active booking
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+          Pending approval
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
+          Over capacity
+        </span>
+      </div>
 
-						{/* STATS + LOGS */}
-						<div className="flex gap-[50px] flex-1">
-							{/* STATS */}
-							<div>
-								<p>Total: {item.totalQuantity}</p>
-								<p>Borrowed: {item.borrowed}</p>
-								<p>Available: {available}</p>
-							</div>
+      {/* INVENTORY LIST */}
+      <div className="flex flex-col gap-3 mt-6 mx-[10%]">
+        {filteredInventory.length === 0 && (
+          <p className="text-sm text-gray-400 py-10 text-center">
+            No active bookings found.
+          </p>
+        )}
 
-							{/* LOGS */}
-							<div className="flex flex-col max-h-[150px] overflow-y-auto text-sm">
-								{item.logs.map((log) => {
-									const start = new Date(
-										log.startTime
-									);
-									const end = new Date(
-										log.endTime
-									);
+        {filteredInventory.map((item) => {
+          const available = item.totalQuantity - item.borrowed;
 
-									const logNow =
-										log.isActiveNow;
+          return (
+            <div
+              key={item.id}
+              className={`flex gap-5 px-5 py-4 border rounded-xl ${getCardStyle(item)} transition-all`}
+            >
+              {/* STATUS DOT + IMAGE + NAME */}
+              <div className="flex items-center gap-3 w-[240px] shrink-0">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getStatusDot(item)}`} />
+                <Image
+                  width={60}
+                  height={60}
+                  src={item.image?.url || "/Images/t_beaker.png"}
+                  alt={item.name}
+                  className="object-contain"
+                />
+                <span className="text-sm font-medium leading-tight">{item.name}</span>
+              </div>
 
-									const logStyle = logNow
-										? "bg-green-100 font-semibold px-1 rounded"
-										: log.stage === "DRAFT"
-										? "bg-yellow-100 px-1 rounded"
-										: "px-1";
+              {/* DIVIDER */}
+              <div className="w-px bg-gray-200 self-stretch" />
 
-									return (
-										<span
-											key={log.id}
-											className={`${logStyle} text-gray-700 mb-[2px]`}
-										>
-											{start.toLocaleDateString()} →{" "}
-											{end.toLocaleDateString()} —{" "}
-											{log.profile?.name ||
-												log.profile?.email}{" "}
-											borrowed {log.quantity ?? 0}
-										</span>
-									);
-								})}
-							</div>
-						</div>
-					</div>
-				);
-			})}
-		</div>
-	);
+              {/* STATS */}
+              <div className="flex flex-col justify-center gap-1 w-[110px] shrink-0 text-sm text-gray-500">
+                <div className="flex justify-between">
+                  <span>Total</span>
+                  <span className="font-medium text-gray-800">{item.totalQuantity}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Borrowed</span>
+                  <span className="font-medium text-gray-800">{item.borrowed}</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
+                  <span>Available</span>
+                  <span
+                    className={`font-semibold ${
+                      available < 0
+                        ? "text-red-500"
+                        : available === 0
+                        ? "text-amber-500"
+                        : "text-emerald-600"
+                    }`}
+                  >
+                    {available}
+                  </span>
+                </div>
+              </div>
+
+              {/* DIVIDER */}
+              <div className="w-px bg-gray-200 self-stretch" />
+
+              {/* BOOKING LOGS */}
+              <div className="flex flex-col flex-1 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
+                {item.logs.map((log) => {
+                  const start = new Date(log.startTime);
+                  const end = new Date(log.endTime);
+                  const isLoadingThis = actionLoading === log.id;
+
+                  return (
+                    <div
+                      key={log.id}
+                      className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 gap-3 ${
+                        log.isActiveNow
+                          ? "bg-emerald-100 text-emerald-800"
+                          : log.stage === "DRAFT"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {/* LOG INFO */}
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="font-medium truncate">
+                          {log.profile?.name || log.profile?.email || "Unknown"}
+                        </span>
+                        <span className="opacity-70">
+                          {start.toLocaleDateString()} → {end.toLocaleDateString()} · qty {log.quantity ?? 0}
+                        </span>
+                      </div>
+
+                      {/* STAGE BADGE + ACTIONS */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {log.stage === "DRAFT" ? (
+                          <>
+                            <span className="text-[10px] uppercase tracking-wider font-semibold opacity-50">
+                              Pending
+                            </span>
+                            <button
+                              disabled={isLoadingThis}
+                              onClick={() => handleConfirm(log.id)}
+                              className="flex items-center gap-1 text-[11px] font-semibold bg-black text-white px-2.5 py-1 rounded-md hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {isLoadingThis ? (
+                                <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />
+                              ) : (
+                                "✓ Approve"
+                              )}
+                            </button>
+                            <button
+                              disabled={isLoadingThis}
+                              onClick={() => handleCancel(log.id)}
+                              className="text-[11px] font-semibold bg-white text-gray-600 border border-gray-300 px-2.5 py-1 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              Decline
+                            </button>
+                          </>
+                        ) : (
+                          <span
+                            className={`text-[10px] uppercase tracking-wider font-semibold ${
+                              log.isActiveNow ? "text-emerald-700" : "text-gray-400"
+                            }`}
+                          >
+                            {log.isActiveNow ? "● Active" : "Upcoming"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
