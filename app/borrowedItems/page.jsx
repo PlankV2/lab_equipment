@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import Image from "next/image";
 import { GraphQLClient, gql } from "graphql-request";
+import { useUser } from "@clerk/nextjs";
 
 /* ---------------- HYGRAPH CLIENT ---------------- */
 const hygraph = new GraphQLClient(
@@ -13,6 +14,9 @@ const hygraph = new GraphQLClient(
     },
   }
 );
+
+/* ---------------- ADMIN EMAIL ---------------- */
+const ADMIN_EMAIL = "amar-erdenebatsuren@hobbyschool.edu.mn";
 
 /* ---------------- QUERIES ---------------- */
 const GET_EQUIPMENTS = gql`
@@ -80,8 +84,21 @@ const DELETE_BOOKING = gql`
   }
 `;
 
+const UNPUBLISH_BOOKING = gql`
+  mutation UnpublishBooking($id: ID!) {
+    unpublishBooking(where: { id: $id }, from: PUBLISHED) {
+      id
+      stage
+    }
+  }
+`;
+
 /* ================================================= */
 export default function Inventory() {
+  const { user } = useUser();
+  const isAdmin =
+    user?.emailAddresses?.some((e) => e.emailAddress === ADMIN_EMAIL) ?? false;
+
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -171,8 +188,6 @@ export default function Inventory() {
   const handleConfirm = async (id) => {
     setActionLoading(id);
     try {
-      // Just publish — no delete. The draft layer is the same record;
-      // deduplication in fetchData will hide it once PUBLISHED exists.
       await hygraph.request(PUBLISH_BOOKING, { id });
       await fetchData();
     } catch (err) {
@@ -189,13 +204,32 @@ export default function Inventory() {
   const handleCancel = async (id) => {
     setActionLoading(id);
     try {
-      // Delete only for genuine cancellations (entry is still DRAFT only)
       await hygraph.request(DELETE_BOOKING, { id });
       await fetchData();
     } catch (err) {
       console.error("Delete failed:", err?.response?.errors ?? err);
       alert(
         "Delete failed: " +
+          (err?.response?.errors?.[0]?.message ?? "Unknown error")
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Admin-only: cancel an already-published (active/upcoming) booking
+  const handleAdminCancel = async (id) => {
+    if (!isAdmin) return;
+    setActionLoading(id);
+    try {
+      // Must unpublish before deleting in Hygraph
+      await hygraph.request(UNPUBLISH_BOOKING, { id });
+      await hygraph.request(DELETE_BOOKING, { id });
+      await fetchData();
+    } catch (err) {
+      console.error("Admin cancel failed:", err?.response?.errors ?? err);
+      alert(
+        "Cancel failed: " +
           (err?.response?.errors?.[0]?.message ?? "Unknown error")
       );
     } finally {
@@ -240,7 +274,14 @@ export default function Inventory() {
     <div className="flex flex-col w-full pb-20">
       {/* HEADER */}
       <div className="ml-[10%] mt-[5%]">
-        <span className="text-[40px] font-light tracking-tight">Inventory</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[40px] font-light tracking-tight">Inventory</span>
+          {isAdmin && (
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-white bg-black px-2.5 py-1 rounded-full">
+              Admin
+            </span>
+          )}
+        </div>
         <p className="text-[12px] text-gray-400 mt-1">
           View and manage lab equipment bookings
         </p>
@@ -340,6 +381,7 @@ export default function Inventory() {
                   const start = new Date(log.startTime);
                   const end = new Date(log.endTime);
                   const isLoadingThis = actionLoading === log.id;
+                  const isPublished = log.stage === "PUBLISHED";
 
                   return (
                     <div
@@ -369,33 +411,57 @@ export default function Inventory() {
                             <span className="text-[10px] uppercase tracking-wider font-semibold opacity-50">
                               Pending
                             </span>
-                            <button
-                              disabled={isLoadingThis}
-                              onClick={() => handleConfirm(log.id)}
-                              className="flex items-center gap-1 text-[11px] font-semibold bg-black text-white px-2.5 py-1 rounded-md hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                              {isLoadingThis ? (
-                                <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />
-                              ) : (
-                                "✓ Approve"
-                              )}
-                            </button>
-                            <button
-                              disabled={isLoadingThis}
-                              onClick={() => handleCancel(log.id)}
-                              className="text-[11px] font-semibold bg-white text-gray-600 border border-gray-300 px-2.5 py-1 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                              Decline
-                            </button>
+                            {isAdmin && (
+                              <>
+                                <button
+                                  disabled={isLoadingThis}
+                                  onClick={() => handleConfirm(log.id)}
+                                  className="flex items-center gap-1 text-[11px] font-semibold bg-black text-white px-2.5 py-1 rounded-md hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  {isLoadingThis ? (
+                                    <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />
+                                  ) : (
+                                    "✓ Approve"
+                                  )}
+                                </button>
+                                <button
+                                  disabled={isLoadingThis}
+                                  onClick={() => handleCancel(log.id)}
+                                  className="text-[11px] font-semibold bg-white text-gray-600 border border-gray-300 px-2.5 py-1 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  Decline
+                                </button>
+                              </>
+                            )}
                           </>
                         ) : (
-                          <span
-                            className={`text-[10px] uppercase tracking-wider font-semibold ${
-                              log.isActiveNow ? "text-emerald-700" : "text-gray-400"
-                            }`}
-                          >
-                            {log.isActiveNow ? "● Active" : "Upcoming"}
-                          </span>
+                          <>
+                            <span
+                              className={`text-[10px] uppercase tracking-wider font-semibold ${
+                                log.isActiveNow ? "text-emerald-700" : "text-gray-400"
+                              }`}
+                            >
+                              {log.isActiveNow ? "● Active" : "Upcoming"}
+                            </span>
+                            {isAdmin && isPublished && (
+                              <button
+                                disabled={isLoadingThis}
+                                onClick={() => handleAdminCancel(log.id)}
+                                className="group flex items-center gap-1.5 text-[11px] font-medium text-red-500 border border-red-200 bg-white px-2.5 py-1 rounded-md hover:bg-red-500 hover:text-white hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                              >
+                                {isLoadingThis ? (
+                                  <span className="animate-spin inline-block w-3 h-3 border border-red-400 border-t-transparent rounded-full group-hover:border-white group-hover:border-t-transparent" />
+                                ) : (
+                                  <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                                    </svg>
+                                    Cancel
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
