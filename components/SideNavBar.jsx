@@ -3,7 +3,7 @@
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import React, { use } from "react";
 import { Button } from "@/components/ui/button";
-import { Menu, Home, ClipboardList, AlertTriangle, LogIn } from "lucide-react";
+import { Menu, Home, ClipboardList, AlertTriangle, LogIn, User } from "lucide-react";
 import { useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -74,13 +74,16 @@ export default function SideNavBar() {
 							<ClipboardList size={18} /> Inventory
 						</Link>
 
-						<button className="flex items-center gap-2 pl-3 cursor-pointer">
-							<AlertTriangle size={18} />
-							<div className="flex flex-col">
-								<span>Report missing/</span>
-								<span>Damaged items</span>
-							</div>
-						</button>
+						<Link
+							href="/users"
+							className={`flex items-center gap-2 rounded-md cursor-pointer pl-3 py-2 ${
+								pathname === "/users" &&
+								"bg-black text-white "
+							}`}
+						>
+							<User size={18} /> Users
+						</Link>
+						
 					</nav>
 				</SheetContent>
 			</Sheet>
