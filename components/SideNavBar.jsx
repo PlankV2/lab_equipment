@@ -37,7 +37,7 @@ export default function SideNavBar() {
 								Hobby School Lab Equipment Inventory
 							</span>
 							<Image
-								src="/images/HobbyLogo.png"
+								src="/Images/HobbyLogo.png"
 								alt="logo"
 								width={50}
 								height={20}
