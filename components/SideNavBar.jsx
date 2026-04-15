@@ -84,6 +84,15 @@ export default function SideNavBar() {
 							<User size={18} /> Users
 						</Link>
 						
+						<Link
+							href="/missing"
+							className={`flex items-center gap-2 rounded-md cursor-pointer pl-3 py-2 ${
+								pathname === "/missing" &&
+								"bg-black text-white "
+							}`}
+						>
+							<User size={18} /> Where is it?
+						</Link>
 					</nav>
 				</SheetContent>
 			</Sheet>
