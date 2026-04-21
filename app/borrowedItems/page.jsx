@@ -103,6 +103,7 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [actionLoading, setActionLoading] = useState(null);
+  const [sortBy, setSortBy] = useState("name");
 
   /* ---------------- FETCH ---------------- */
   const fetchData = useCallback(async () => {
@@ -237,12 +238,86 @@ export default function Inventory() {
     }
   };
 
-  /* ---------------- SEARCH ---------------- */
-  const filteredInventory = useMemo(() => {
-    if (!search.trim()) return inventory;
-    const q = search.toLowerCase();
-    return inventory.filter((item) => item.name.toLowerCase().includes(q));
-  }, [inventory, search]);
+  // Admin-only: dismiss a completed/returned booking
+  const handleDismiss = async (id) => {
+    if (!isAdmin) return;
+    setActionLoading(id);
+    try {
+      await hygraph.request(UNPUBLISH_BOOKING, { id });
+      await hygraph.request(DELETE_BOOKING, { id });
+      await fetchData();
+    } catch (err) {
+      console.error("Dismiss failed:", err?.response?.errors ?? err);
+      alert(
+        "Dismiss failed: " +
+          (err?.response?.errors?.[0]?.message ?? "Unknown error")
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  /* ---------------- SEARCH & SORT ---------------- */
+  const filteredAndSortedInventory = useMemo(() => {
+    // First apply search filter
+    let result = search.trim()
+      ? inventory.filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
+      : inventory;
+
+    const now = new Date();
+
+    // Add metadata for time-based sorting
+    result = result.map((item) => {
+      const publishedLogs = item.logs.filter((l) => l.stage === "PUBLISHED");
+      const endTimes = publishedLogs.map((l) => new Date(l.endTime));
+
+      let relevantEndTime = null;
+      let hasPastDue = false;
+
+      if (endTimes.length > 0) {
+        if (sortBy === "earliest") {
+          relevantEndTime = new Date(Math.min(...endTimes));
+        } else if (sortBy === "latest") {
+          relevantEndTime = new Date(Math.max(...endTimes));
+        }
+
+        // Check if any published booking has passed its end time
+        hasPastDue = endTimes.some((endTime) => endTime < now);
+      }
+
+      return {
+        ...item,
+        relevantEndTime,
+        hasPastDue,
+      };
+    });
+
+    // Sort based on selected mode
+    if (sortBy === "name") {
+      result.sort((a, b) => a.name.localeCompare(b.name));
+      return { all: result, pastDue: [], active: [] };
+    } else if (sortBy === "earliest" || sortBy === "latest") {
+      // Separate past due and active
+      const pastDue = result.filter((item) => item.hasPastDue);
+      const active = result.filter((item) => !item.hasPastDue);
+
+      // Sort each group
+      const sortFn = (a, b) => {
+        if (!a.relevantEndTime) return 1;
+        if (!b.relevantEndTime) return -1;
+        return sortBy === "earliest"
+          ? a.relevantEndTime - b.relevantEndTime
+          : b.relevantEndTime - a.relevantEndTime;
+      };
+
+      pastDue.sort(sortFn);
+      active.sort(sortFn);
+
+      return { all: [], pastDue, active };
+    }
+
+    return { all: result, pastDue: [], active: [] };
+  }, [inventory, search, sortBy]);
 
   /* ---------------- CARD STYLE ---------------- */
   const getCardStyle = (item) => {
@@ -261,6 +336,203 @@ export default function Inventory() {
     if (item.logs.some((l) => l.stage === "PUBLISHED"))
       return "bg-emerald-400";
     return "bg-gray-300";
+  };
+
+  /* ---------------- RENDER ITEM CARD ---------------- */
+  const renderItemCard = (item, showDismiss = false) => {
+    const available = item.totalQuantity - item.borrowed;
+    const now = new Date();
+
+    return (
+      <div
+        key={item.id}
+        className={`flex gap-5 px-5 py-4 border rounded-xl ${getCardStyle(item)} transition-all`}
+      >
+        {/* STATUS DOT + IMAGE + NAME */}
+        <div className="flex items-center gap-3 w-[240px] shrink-0">
+          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getStatusDot(item)}`} />
+          <Image
+            width={60}
+            height={60}
+            src={item.image?.url || "/Images/t_beaker.png"}
+            alt={item.name}
+            className="object-contain"
+          />
+          <span className="text-sm font-medium leading-tight">{item.name}</span>
+        </div>
+
+        {/* DIVIDER */}
+        <div className="w-px bg-gray-200 self-stretch" />
+
+        {/* STATS */}
+        <div className="flex flex-col justify-center gap-1 w-[110px] shrink-0 text-sm text-gray-500">
+          <div className="flex justify-between">
+            <span>Total</span>
+            <span className="font-medium text-gray-800">{item.totalQuantity}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Borrowed</span>
+            <span className="font-medium text-gray-800">{item.borrowed}</span>
+          </div>
+          <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
+            <span>Available</span>
+            <span
+              className={`font-semibold ${
+                available < 0
+                  ? "text-red-500"
+                  : available === 0
+                  ? "text-amber-500"
+                  : "text-emerald-600"
+              }`}
+            >
+              {available}
+            </span>
+          </div>
+        </div>
+
+        {/* DIVIDER */}
+        <div className="w-px bg-gray-200 self-stretch" />
+
+        {/* BOOKING LOGS */}
+        <div className="flex flex-col flex-1 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
+          {item.logs.map((log) => {
+            const start = new Date(log.startTime);
+            const end = new Date(log.endTime);
+            const isLoadingThis = actionLoading === log.id;
+            const isPublished = log.stage === "PUBLISHED";
+            const isPastEndTime = end < now;
+
+            return (
+              <div
+                key={log.id}
+                className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 gap-3 ${
+                  isPastEndTime && isPublished
+                    ? "bg-gray-200 text-gray-600"
+                    : log.isActiveNow
+                    ? "bg-emerald-100 text-emerald-800"
+                    : log.stage === "DRAFT"
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {/* LOG INFO */}
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="font-medium truncate">
+                    {log.profile?.name || log.profile?.email || "Unknown"}
+                  </span>
+                  <span className="opacity-70">
+                    {start.toLocaleDateString()} → {end.toLocaleDateString()} · qty {log.quantity ?? 0}
+                  </span>
+                </div>
+
+                {/* STAGE BADGE + ACTIONS */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {log.stage === "DRAFT" ? (
+                    <>
+                      <span className="text-[10px] uppercase tracking-wider font-semibold opacity-50">
+                        Pending
+                      </span>
+                      {isAdmin && (
+                        <>
+                          <button
+                            disabled={isLoadingThis}
+                            onClick={() => handleConfirm(log.id)}
+                            className="flex items-center gap-1 text-[11px] font-semibold bg-black text-white px-2.5 py-1 rounded-md hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {isLoadingThis ? (
+                              <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />
+                            ) : (
+                              "✓ Approve"
+                            )}
+                          </button>
+                          <button
+                            disabled={isLoadingThis}
+                            onClick={() => handleCancel(log.id)}
+                            className="text-[11px] font-semibold bg-white text-gray-600 border border-gray-300 px-2.5 py-1 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Decline
+                          </button>
+                        </>
+                      )}
+                    </>
+                  ) : isPastEndTime ? (
+                    <>
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">
+                        Completed
+                      </span>
+                      {isAdmin && showDismiss && (
+                        <button
+                          disabled={isLoadingThis}
+                          onClick={() => handleDismiss(log.id)}
+                          className="group flex items-center gap-1.5 text-[11px] font-medium text-gray-600 border border-gray-300 bg-white px-2.5 py-1 rounded-md hover:bg-gray-600 hover:text-white hover:border-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                        >
+                          {isLoadingThis ? (
+                            <span className="animate-spin inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full group-hover:border-white group-hover:border-t-transparent" />
+                          ) : (
+                            <>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-3 h-3"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              Dismiss
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className={`text-[10px] uppercase tracking-wider font-semibold ${
+                          log.isActiveNow ? "text-emerald-700" : "text-gray-400"
+                        }`}
+                      >
+                        {log.isActiveNow ? "● Active" : "Upcoming"}
+                      </span>
+                      {isAdmin && isPublished && (
+                        <button
+                          disabled={isLoadingThis}
+                          onClick={() => handleAdminCancel(log.id)}
+                          className="group flex items-center gap-1.5 text-[11px] font-medium text-red-500 border border-red-200 bg-white px-2.5 py-1 rounded-md hover:bg-red-500 hover:text-white hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
+                        >
+                          {isLoadingThis ? (
+                            <span className="animate-spin inline-block w-3 h-3 border border-red-400 border-t-transparent rounded-full group-hover:border-white group-hover:border-t-transparent" />
+                          ) : (
+                            <>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-3 h-3"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                              </svg>
+                              Cancel
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   if (loading)
@@ -287,15 +559,24 @@ export default function Inventory() {
         </p>
       </div>
 
-      {/* SEARCH */}
-      <div className="ml-[10%] mt-4 w-[50%]">
+      {/* SEARCH & FILTER */}
+      <div className="ml-[10%] mt-4 flex gap-3 w-[50%]">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search items..."
-          className="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:border-black transition-colors"
+          className="border border-gray-300 rounded-lg px-3 py-2 flex-1 text-sm focus:outline-none focus:border-black transition-colors"
         />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-black transition-colors bg-white cursor-pointer"
+        >
+          <option value="name">Sort by Name</option>
+          <option value="earliest">Earliest End Time</option>
+          <option value="latest">Latest End Time</option>
+        </select>
       </div>
 
       {/* LEGEND */}
@@ -316,161 +597,52 @@ export default function Inventory() {
 
       {/* INVENTORY LIST */}
       <div className="flex flex-col gap-3 mt-6 mx-[10%]">
-        {filteredInventory.length === 0 && (
-          <p className="text-sm text-gray-400 py-10 text-center">
-            No active bookings found.
-          </p>
+        {filteredAndSortedInventory.all.length === 0 &&
+          filteredAndSortedInventory.pastDue.length === 0 &&
+          filteredAndSortedInventory.active.length === 0 && (
+            <p className="text-sm text-gray-400 py-10 text-center">
+              No active bookings found.
+            </p>
+          )}
+
+        {/* SORTED BY NAME - Single list */}
+        {sortBy === "name" &&
+          filteredAndSortedInventory.all.map((item) => renderItemCard(item))}
+
+        {/* SORTED BY TIME - Separated lists */}
+        {(sortBy === "earliest" || sortBy === "latest") && (
+          <>
+            {/* PAST DUE SECTION */}
+            {filteredAndSortedInventory.pastDue.length > 0 && (
+              <>
+                <div className="flex items-center gap-3 mt-4 mb-1">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                    Past Due Returns
+                  </h3>
+                  <div className="h-px bg-gray-200 flex-1" />
+                </div>
+                {filteredAndSortedInventory.pastDue.map((item) =>
+                  renderItemCard(item, true)
+                )}
+              </>
+            )}
+
+            {/* ACTIVE/UPCOMING SECTION */}
+            {filteredAndSortedInventory.active.length > 0 && (
+              <>
+                <div className="flex items-center gap-3 mt-4 mb-1">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                    Active & Upcoming
+                  </h3>
+                  <div className="h-px bg-gray-200 flex-1" />
+                </div>
+                {filteredAndSortedInventory.active.map((item) =>
+                  renderItemCard(item)
+                )}
+              </>
+            )}
+          </>
         )}
-
-        {filteredInventory.map((item) => {
-          const available = item.totalQuantity - item.borrowed;
-
-          return (
-            <div
-              key={item.id}
-              className={`flex gap-5 px-5 py-4 border rounded-xl ${getCardStyle(item)} transition-all`}
-            >
-              {/* STATUS DOT + IMAGE + NAME */}
-              <div className="flex items-center gap-3 w-[240px] shrink-0">
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${getStatusDot(item)}`} />
-                <Image
-                  width={60}
-                  height={60}
-                  src={item.image?.url || "/Images/t_beaker.png"}
-                  alt={item.name}
-                  className="object-contain"
-                />
-                <span className="text-sm font-medium leading-tight">{item.name}</span>
-              </div>
-
-              {/* DIVIDER */}
-              <div className="w-px bg-gray-200 self-stretch" />
-
-              {/* STATS */}
-              <div className="flex flex-col justify-center gap-1 w-[110px] shrink-0 text-sm text-gray-500">
-                <div className="flex justify-between">
-                  <span>Total</span>
-                  <span className="font-medium text-gray-800">{item.totalQuantity}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Borrowed</span>
-                  <span className="font-medium text-gray-800">{item.borrowed}</span>
-                </div>
-                <div className="flex justify-between border-t border-gray-200 pt-1 mt-1">
-                  <span>Available</span>
-                  <span
-                    className={`font-semibold ${
-                      available < 0
-                        ? "text-red-500"
-                        : available === 0
-                        ? "text-amber-500"
-                        : "text-emerald-600"
-                    }`}
-                  >
-                    {available}
-                  </span>
-                </div>
-              </div>
-
-              {/* DIVIDER */}
-              <div className="w-px bg-gray-200 self-stretch" />
-
-              {/* BOOKING LOGS */}
-              <div className="flex flex-col flex-1 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                {item.logs.map((log) => {
-                  const start = new Date(log.startTime);
-                  const end = new Date(log.endTime);
-                  const isLoadingThis = actionLoading === log.id;
-                  const isPublished = log.stage === "PUBLISHED";
-
-                  return (
-                    <div
-                      key={log.id}
-                      className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 gap-3 ${
-                        log.isActiveNow
-                          ? "bg-emerald-100 text-emerald-800"
-                          : log.stage === "DRAFT"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {/* LOG INFO */}
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="font-medium truncate">
-                          {log.profile?.name || log.profile?.email || "Unknown"}
-                        </span>
-                        <span className="opacity-70">
-                          {start.toLocaleDateString()} → {end.toLocaleDateString()} · qty {log.quantity ?? 0}
-                        </span>
-                      </div>
-
-                      {/* STAGE BADGE + ACTIONS */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        {log.stage === "DRAFT" ? (
-                          <>
-                            <span className="text-[10px] uppercase tracking-wider font-semibold opacity-50">
-                              Pending
-                            </span>
-                            {isAdmin && (
-                              <>
-                                <button
-                                  disabled={isLoadingThis}
-                                  onClick={() => handleConfirm(log.id)}
-                                  className="flex items-center gap-1 text-[11px] font-semibold bg-black text-white px-2.5 py-1 rounded-md hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  {isLoadingThis ? (
-                                    <span className="animate-spin inline-block w-3 h-3 border border-white border-t-transparent rounded-full" />
-                                  ) : (
-                                    "✓ Approve"
-                                  )}
-                                </button>
-                                <button
-                                  disabled={isLoadingThis}
-                                  onClick={() => handleCancel(log.id)}
-                                  className="text-[11px] font-semibold bg-white text-gray-600 border border-gray-300 px-2.5 py-1 rounded-md hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  Decline
-                                </button>
-                              </>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <span
-                              className={`text-[10px] uppercase tracking-wider font-semibold ${
-                                log.isActiveNow ? "text-emerald-700" : "text-gray-400"
-                              }`}
-                            >
-                              {log.isActiveNow ? "● Active" : "Upcoming"}
-                            </span>
-                            {isAdmin && isPublished && (
-                              <button
-                                disabled={isLoadingThis}
-                                onClick={() => handleAdminCancel(log.id)}
-                                className="group flex items-center gap-1.5 text-[11px] font-medium text-red-500 border border-red-200 bg-white px-2.5 py-1 rounded-md hover:bg-red-500 hover:text-white hover:border-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150"
-                              >
-                                {isLoadingThis ? (
-                                  <span className="animate-spin inline-block w-3 h-3 border border-red-400 border-t-transparent rounded-full group-hover:border-white group-hover:border-t-transparent" />
-                                ) : (
-                                  <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-                                    </svg>
-                                    Cancel
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
